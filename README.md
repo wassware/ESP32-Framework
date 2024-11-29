@@ -1,7 +1,7 @@
 # ESP32-Framework
 Since seriously getting into Arduino (thank you Joe) and ESP32 on retiring in 2000 I made a plan to stay at it as a means of keeping the brain ticking over. After all if you can write a chunk of code and get it debugged and running reliably then it's worth getting up the next day - and anyway a better option than going down to the day centre to do basket weaving.
 
-As Scott Adams said around 25 years ago we're all getting more stupid. Not necessarily because we are, but because but because the technology we face is getting more complicated. By implication if I can do this year what I could do last year in the coding space then I've actually got more intelligent which is comforting.
+As Scott Adams said around 25 years ago we're all getting more stupid. Not necessarily because we are, but because the technology we face is getting more complicated. By implication if I can do this year what I could do last year in the coding space then I've actually got more intelligent which is comforting.
 
 Over the 4 years I have dabbled with matrix keypads, 4 line displays, Bluetooth etc, but finally settled on MQTT and Json as the cool way of doing things.
 The very useful IoT MQTT Panel by Rahul Kundu has proved an excellent tool for building up the display and control ware for both local and cloud based use.
