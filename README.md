@@ -5,7 +5,9 @@ As Scott Adams said around 25 years ago we're all getting more stupid. Not neces
 
 Over the 4 years I have dabbled with matrix keypads, 4 line displays, Bluetooth etc, but finally settled on MQTT and Json as the cool way of doing things.
 The very useful IoT MQTT Panel by Rahul Kundu has proved an excellent tool for building up the display and control ware for both local and cloud based use.
-Out of all of this I have distilled what I call my base framework. Its the starting point for every new app and contains all the useful elements you see in the code comments. The key thing was to make it work slickly with WinMerge so all the code bases can be kept in sync. 
+Out of all of this I have distilled what I call my base framework. Its the starting point for every new app and contains all the useful elements you see in the code comments. The key thing was to make it work slickly with WinMerge so all the code bases can be kept in sync.
+
+Also a key part of the way-I-go-about-it code wise is keep it straight forward enough to get back into after maybe months and not needing piles of comments as these never stay up to gate. I do my {} the way I do as in Algol 60 from my Burroughs mainframe days the 'begin' was always on the next line for easy reading. And hopefully it will annoy the purists.
 
 There is a bundle of stuff in there: Serial console, telnet, wifi, mqtt, time, restart error checking, properties.
 
