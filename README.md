@@ -9,8 +9,8 @@ Out of all of this I have distilled what I call my base framework. Its the start
 
 Also a key part of the way-I-go-about-it code wise is keep it straight forward enough to get back into after maybe months and not needing piles of comments as these never stay up to gate. I do my {} the way I do as in Algol 60 from my Burroughs mainframe days the 'begin' was always on the next line for easy reading. And hopefully it will annoy the purists.
 
-There is a bundle of stuff in there: Serial console, telnet, wifi, mqtt, time, restart error checking, properties.
+There is a bundle of stuff in there: command console, telnet, wifi, mqtt, time, restart error checking, properties, a sort of a dns, dhcp and fixed ip, time sunchronisation etc.
 
-At a system level there are three dedicated ESP32s: MQTTBroker, MQTTBridge to Hive, Telnet bridge from the cloud. All built off the framework. And then there are the apps actually doing useful things.
+At a system level there are three dedicated ESP32s: MQTTBroker, MQTTBridge to Hive, Telnet bridge from the cloud. All built off the framework. And then there are the apps actually doing useful things as well
 
 Enjoy. 
