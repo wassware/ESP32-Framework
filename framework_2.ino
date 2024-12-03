@@ -13,19 +13,22 @@
 //  build date capture
 //  mqqt used with the excellent Android IoT MQTT Panel by Rahul Kundu
 //  uses PICO MQTT for mqtt layer.
-// Mixed success with wifi hostname - hence easier with fixed IP
 
 // Important points:
+//  framework supports fixed and DHCP assignned ips
 //  fixed IPs are assigned as last part only - so 200 is typically 109.168.0.200
 //  I have configured router to use DHCP in range up to 199
-//  IPs have to be unique of course
-//  for mqtt each app has an mqttid (for its function) and a unitid(production/test ect)
+//  fixed ips are only used for 2 components in practice - see mqttbroker and telnetbridge
+//  mqttbroker doubles as a mqtt based dns
+//  for mqtt each app has an mqttid (for its function) and a unitid(production/test/unit number etc)
 //  I use 2 characters so mqttid = jt unitid = 1  would use jt/1 to establish mqtt connection
-//  mqttids MUST be unique or you get into a right mess debugging.
+//  mqttids MUST be unique or you get into a right mess debugging mqtt
 
 // For most apps add in code at the // custom  places indicated.
 // Look at other apps to see how this is done.
-// Some apps need sections of the framework commected out or adding to.
+// Some apps need sections of the framework commented out or adding to.
+
+// has a test section at the end that gets removed in the app
 
 
 const char* module = "framework 2";
@@ -47,6 +50,9 @@ int bufPtr = 0;
 
 // ----------- start WiFi & Mqtt & Telnet include 1 ---------------------
 #define HAVEWIFI 1
+// sort of a DNS
+#define DNSSIZE 20
+#define SYNCHINTERVAL 30
 // wifi, time, mqtt
 #include <ESP32Time.h>
 ESP32Time rtc;
@@ -56,7 +62,6 @@ ESP32Time rtc;
 #include <PicoMQTT.h>
 ESPTelnet telnet;
 IPAddress ip;
-#define TIMESYNCHINTERVAL 300
 PicoMQTT::Client mqttClient;
 
 // ----------- end  WiFi & Mqtt & Telnet include 1 ---------------------
@@ -74,7 +79,7 @@ String wifiSsid = "<ssid>";
 String wifiSsidN = "wifiSsid";        
 String wifiPwd = "<pwd>";
 String wifiPwdN = "wifiPwd";
-byte wifiIp4 = 240;
+byte wifiIp4 = 0;   // > 0 for fixed ip
 String wifiIp4N = "wifiIp4";
 byte mqttIp4 = 200;
 String mqttIp4N = "mqttIp4";
@@ -98,6 +103,14 @@ String restartN = "restart";
 String writePropsN = "writeProps";
 
 // ------- custom properties -----------
+int testLocalInterval = 10000;
+String testLocalIntervalN = "testLocalInterval";
+int testBridgeInterval = 10000;
+String testBridgeIntervalN = "testBridgeInterval";
+int testProperty = 0;
+String testPropertyN = "testProperty";
+int testSize = 0;
+String testSizeN = "testSize";
 // ------- end custom properties -----------
 
 // ----------- start properties include 2 --------------------
@@ -454,6 +467,10 @@ void extractProps(JsonDocument &doc, bool reportMissing)
   propName = propValueN;if (checkProp(doc, propName, false)) propValue = doc[propName].as<String>();  // picked up in checkState()
 
   // ----- start custom extract -----
+  propName = testLocalIntervalN;if (checkProp(doc, propName, reportMissing)) testLocalInterval = doc[propName].as<int>();
+  propName = testBridgeIntervalN;if (checkProp(doc, propName, reportMissing)) testBridgeInterval = doc[propName].as<int>();
+  propName = testPropertyN;if (checkProp(doc, propName, false)) testProperty = doc[propName].as<int>();
+  propName = testSizeN;if (checkProp(doc, propName, reportMissing)) testSize = doc[propName].as<int>();
   // ----- end custom extract -----
 }
 
@@ -473,6 +490,9 @@ void addProps(JsonDocument &doc)
   doc[wdTimeoutN] = wdTimeout;
 
   // ----- start custom add -----
+  doc[testLocalIntervalN] = testLocalInterval;
+  doc[testBridgeIntervalN] = testBridgeInterval;
+  doc[testSizeN] = testSize;
   // ----- end custom add -----
 }
 
@@ -489,7 +509,7 @@ void processCommandLine(String cmdLine)
     case 'h':
     case '?':
       log(0, "v:version, w:writeprops, d:dispprops, l:loadprops p<prop>=<val>: change prop, r:restart");
-      log(0, "s:showstats, z:zerostats, 0,1,2:loglevel = " + String(logLevel));
+      log(0, "s:showstats, z:zerostats, n:dns, 0,1,2:loglevel = " + String(logLevel));
       return;
     case 'w':
       writeProps(false);
@@ -523,6 +543,9 @@ void processCommandLine(String cmdLine)
         log(0, "ESP time: " + dateTimeIso(now));
         return;
       }
+    case 'n':
+      logDns();
+      break;
     case '0':
       logLevel = 0;
       log(0, " loglevel=" + String(logLevel));
@@ -602,15 +625,22 @@ bool startWifi()
   delay (500);
   unsigned long startWaitWifi = millis();
   WiFi.mode(WIFI_STA);
-  IPAddress subnet(255, 255, 0, 0);
-  IPAddress fixedIp = localIp;
-  fixedIp[3] = wifiIp4;
-  if (!WiFi.config(fixedIp, gatewayIp, subnet, primaryDNSIp, primaryDNSIp)) 
+  if (wifiIp4 == 0)
   {
-    log(1, "STA Failed to configure");
-    return false;
+    log(1, "Start wifi dhcp: " + wifiSsid + " " + wifiPwd);
   }
-  log(1, "Start wifi fixip: " + wifiSsid + " " + wifiPwd);
+  else
+  {
+    IPAddress subnet(255, 255, 0, 0);
+    IPAddress fixedIp = localIp;
+    fixedIp[3] = wifiIp4;
+    if (!WiFi.config(fixedIp, gatewayIp, subnet, primaryDNSIp, primaryDNSIp)) 
+    {
+      log(1, "STA Failed to configure");
+      return false;
+    }
+    log(1, "Start wifi fixip: " + wifiSsid + " " + wifiPwd);
+  }
   WiFi.begin(wifiSsid, wifiPwd);
   return true;
 }
@@ -638,6 +668,125 @@ int waitWifi()
 }
 
 
+// dns support
+struct dnsIsh
+{
+  bool used = false;
+  String name;
+  String ip;
+  int timeout;
+};
+dnsIsh dnsList[DNSSIZE];
+unsigned long dnsVersion = 0;
+unsigned long lastSynchTime = 0;
+
+void logDns()
+{
+  log(0, "dns v=" + String(dnsVersion));
+  for (int ix = 0; ix < DNSSIZE; ix++)
+  {
+    if (dnsList[ix].used && dnsList[ix].timeout > 0)
+    {
+      log(0, String(ix) + " " + dnsList[ix].name + " " + dnsList[ix].ip);
+    }
+  }
+}
+
+String dnsGetIp(String name)
+{
+  for (int ix = 0; ix < DNSSIZE; ix++)
+  {
+    if (dnsList[ix].used && dnsList[ix].name.startsWith(name))
+    {
+      return dnsList[ix].ip;
+    }
+  }
+  return "";
+}
+
+// ESP32 Time
+String formatd2(int i)
+{
+  if (i < 10)
+  {
+    return "0" + String(i);
+  }
+  return String(i);
+}
+String dateTimeIso(tm d)
+{
+  return String(d.tm_year+1900)+"-"+formatd2(d.tm_mon+1)+"-"+formatd2(d.tm_mday)+"T"+formatd2(d.tm_hour)+":"+formatd2(d.tm_min)+":"+formatd2(d.tm_sec);
+}
+
+// time and dns synch
+void sendSynch()
+{
+  // will get updates if not in synch
+  JsonDocument doc;
+  doc["r"] = mqttMoniker + "/c/s";    // reply token
+  doc["n"] = mqttId + String(unitId);
+  doc["i"] = localIp.toString();
+  doc["e"] = rtc.getEpoch();
+  doc["v"] = dnsVersion;
+  mqttSend("mb/s", doc);
+}
+
+void synchCheck()
+{
+  if (seconds - lastSynchTime > SYNCHINTERVAL/2)
+  {
+    lastSynchTime = seconds;
+    sendSynch();
+  }
+}
+
+void processSynch(JsonDocument &doc)
+{
+  unsigned long epoch = doc["e"].as<unsigned long>();
+  if (epoch > 0)
+  {
+    rtc.setTime(epoch);
+    tm now = rtc.getTimeStruct();
+    log(2, "espTimeSet: " + dateTimeIso(now));
+  }
+  else
+  {
+    int timeAdjust = doc["t"].as<int>();
+    if (timeAdjust != 0)
+    {
+      rtc.setTime(rtc.getEpoch() + timeAdjust);
+      log(2, "espTimeAdjust: " + String(timeAdjust));
+    }
+  }
+  long newDnsVersion = doc["v"].as<long>();
+  if (newDnsVersion != 0)
+  {
+    dnsVersion  = newDnsVersion;
+    log(2, "dns version: " + String(dnsVersion));
+    for (int ix = 0; ix < DNSSIZE; ix++)
+    {
+      dnsList[ix].used = false;
+    }
+    for (int ix = 0; ix < DNSSIZE; ix++)
+    {
+      if (doc.containsKey("n" + String(ix)))
+      {
+        dnsList[ix].name = doc["n" + String(ix)].as<String>();
+        dnsList[ix].ip = doc["i" + String(ix)].as<String>();
+        dnsList[ix].used = true;
+        dnsList[ix].timeout = 1;   // for consistency with dnsLog
+        log(2, ".. " + dnsList[ix].name + " " + dnsList[ix].ip);
+      }
+      else
+      {
+        break;
+      }
+    }
+  }
+}
+
+
+
 // ------------- mqtt section -----------------
 
 // mqtt 
@@ -663,6 +812,7 @@ void setupMqttClient()
 void mqttConnHandler()
 {
   log(0, "MQTT connected: " + String(millis() - mqttDiscMs));
+  sendSynch();
   mqttConnCount++;
 }
 void mqttDiscHandler()
@@ -702,10 +852,10 @@ void mqttMessageHandler(const char * topicC, Stream & stream)
     // its a property setting
     adjustProp(doc["p"].as<String>());
   }
-  else if (topic.endsWith("/t"))
+  else if (topic.endsWith("/s"))
   {   
-    // its a timeSynch
-    setEspTime(doc);
+    // its a synch response message
+    processSynch(doc);
   }
   else
   {
@@ -732,7 +882,7 @@ void mqttSend(String topic, JsonDocument &doc)
 }
 
 // ------------ telnet --------------
-void setupTelnet() 
+void setupTelnet(int port) 
 {  
   telnet.stop();
   // passing on functions for various telnet events
@@ -742,7 +892,7 @@ void setupTelnet()
   telnet.onReconnect(onTelnetReconnect);
   telnet.onInputReceived(onTelnetInput);
 
-  if (telnet.begin(telnetPort)) 
+  if (telnet.begin(port)) 
   {
     log(1, "telnet running");
   } 
@@ -778,36 +928,7 @@ void onTelnetInput(String str)
 {
   processCommandLine(str);
 }
-// ESP32 Time
-int timeSynchIntervalAct = 5;    // initially 5 sec, then TIMESYNCHINTERVAL
-unsigned long lastTimeSynch;
 
-String formatd2(int i)
-{
-  if (i < 10)
-  {
-    return "0" + String(i);
-  }
-  return String(i);
-}
-String dateTimeIso(tm d)
-{
-  return String(d.tm_year+1900)+"-"+formatd2(d.tm_mon+1)+"-"+formatd2(d.tm_mday)+"T"+formatd2(d.tm_hour)+":"+formatd2(d.tm_min)+":"+formatd2(d.tm_sec);
-}
-
-void setEspTime(JsonDocument &doc)
-{
-  rtc.setTime(doc["se"].as<int>(), doc["mi"].as<int>(), doc["hr"].as<int>(), doc["dy"].as<int>(), doc["mn"].as<int>(), doc["yr"].as<int>());
-  tm now = rtc.getTimeStruct();
-  log(2, "esp time synch:" + dateTimeIso(now));
-  timeSynchIntervalAct = TIMESYNCHINTERVAL;
-}
-void requestTimeSynch()
-{
-  JsonDocument doc;
-  doc["topic"] = mqttMoniker + "/c/t";
-  mqttSend("mb/t", doc);
-}
 void setRetryDelay()
 {
   startRetryDelay = seconds;
@@ -830,11 +951,7 @@ void checkState()
     seconds++;
     lastSecondMs+= 1000;
   }
-  if (seconds - lastTimeSynch > timeSynchIntervalAct)
-  {
-    lastTimeSynch = seconds;
-    requestTimeSynch();
-  }
+  synchCheck();
   bool thisWifiState = WiFi.isConnected();
   if (thisWifiState != lastWifiState)
   {
@@ -849,7 +966,6 @@ void checkState()
     }
     lastWifiState = thisWifiState;
   }
- 
  
   if (retryDelay)
   {
@@ -867,10 +983,17 @@ void checkState()
   switch (state)
   {
     case START:
-      state = STARTGETGATEWAY;
+      if (wifiIp4 == 0)
+      {
+        state = STARTCONNECTWIFI;    // dhcp ip
+      }
+      else
+      {
+        state = STARTGETGATEWAY;
+      }
       return;
     case STARTGETGATEWAY:
-      // mandatory we get gateway info before proceeding
+      // only get gateway for fixed ip
       if (!startGetGateway())
       {
         setRetryDelay();
@@ -911,7 +1034,7 @@ void checkState()
         state = STARTCONNECTWIFI;
         return;
       }
-      setupTelnet();
+      setupTelnet(telnetPort);
       setupMqttClient();
       state = ALLOK;
 
@@ -928,20 +1051,95 @@ void mqttSubscribeAdd()
 {
   // use standard or custom handler
   // start subscribe add
-  String topic = "other/#";
+  String topic = "test/#";
   mqttClient.subscribe(topic, &mqttMessageHandler);
   // end subscribe add
 }
 void handleIncoming(String topic, JsonDocument &doc)
 {
   // start custom additional incoming
-  
+  handleTestIncoming(topic, doc);
   // end custom additional incoming
 }
 // ------------ end wifi and mqtt custom section 2 ---------------
 
 // ---- start custom code --------------
+// start test code
+unsigned long lastLocalTestTime = 0;
+unsigned long lastBridgeTestTime = 0;
+unsigned long lastPropertyTime = 0;
 
+int testLocalSent;
+int testLocalRcvd;
+int testBridgeSent;
+int testBridgeRcvd;
+
+void handleTestIncoming(String topic, JsonDocument &doc)
+{
+  unsigned long sentMs = doc["ms"].as<unsigned long>();
+  unsigned int et = millis() - sentMs;
+  if (topic.endsWith("echo"))
+  {
+    testBridgeRcvd++;
+    int missing = testBridgeSent - testBridgeRcvd;
+    log(1, "bridge: " + String(et) + " " + String(testBridgeSent)  + " " + String(missing));
+  }
+  else
+  {
+    testLocalRcvd++;
+    int missing = testLocalSent - testLocalRcvd;
+    log(1, "local: " + String(et) + " " + String(testLocalSent)  + " " + String(missing));
+  }
+}
+
+
+void testLoop()
+{
+  if (state == ALLOK && testBridgeInterval > 10)
+  {
+    if (millis() - lastBridgeTestTime >= testBridgeInterval)
+    {
+      lastBridgeTestTime = millis();
+      JsonDocument doc;
+
+      // test loopback hive
+      doc["ms"] = millis();
+      for (int ix = 0; ix < testSize; ix++)
+      {
+        doc[String(ix+100)] = String(ix+100);   // adds 10 bytes per testSize
+      }
+      mqttSend("mb/f/" + mqttMoniker + "/c/echo", doc);    // default subs - loopbackk via Hive
+      testBridgeSent++;
+    }
+  }
+  if (state == ALLOK && testLocalInterval > 10)
+  {
+    if (millis() - lastLocalTestTime >= testLocalInterval)
+    {
+      lastLocalTestTime = millis();
+      JsonDocument doc;
+      
+      if (seconds - lastPropertyTime > 30)
+      {
+        lastPropertyTime = seconds;       // dont want to overload properties
+        // test setting property
+        doc["p"]="testProperty=" + String(testProperty++);
+        mqttSend(mqttMoniker + "/c/p", doc);
+      }
+
+      // test loopback local
+      doc.clear();
+      doc["ms"] = millis();
+      for (int ix = 0; ix < testSize; ix++)
+      {
+        doc[String(ix+100)] = String(ix+100);   // adds 10 bytes per testSize
+      }
+      mqttSend("test/local", doc);      // additional subs
+      testLocalSent++;
+    }
+  }
+}
+// end test code
 // ---- end custom code --------------
 
 void setup()
@@ -963,8 +1161,6 @@ void setup()
   esp_task_wdt_add(NULL);
 }
 
-unsigned long lastSendTime = 0;
-
 void loop()
 {
   esp_task_wdt_reset();
@@ -973,24 +1169,7 @@ void loop()
   checkSerial();
   checkState();
   // customLoop();
-  
-  // test code
-  if (state == ALLOK)
-  {
-    if (seconds - lastSendTime >= 10)
-    {
-      lastSendTime = seconds;
-      JsonDocument doc;
-      
-      doc["p"]="unitid 1";
-      mqttSend(mqttMoniker + "/c/p", doc);
-
-      doc.clear();
-      doc["bit1"] = "bit1";
-      doc["bit2"] = "bit2";
-      mqttSend("other/d", doc);
-    }
-  }
+  testLoop();
 
   delay(1);
 }
